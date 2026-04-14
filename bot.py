@@ -74,6 +74,11 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+    mesaj = message.content.strip()
+    if mesaj in ["sa", "Sa"]:
+        await message.channel.send(f"{message.author.mention} **Aleykümselam, hoş geldin!**")
+
+    await bot.process_commands(message)
 
 # ─── YARDIM KOMUTU ─────────────────────────────────────────────────────────────
 
