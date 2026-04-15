@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from collections import defaultdict
 
 # ─── AYARLAR ───────────────────────────────────────────────────────────────────
-TOKEN = os.getenv("TOKEN")  # Tokeni Railway'den çekecek
+TOKEN = os.getenv("TOKEN")
 PREFIX = "."
 # ────────────────────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,8 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 # Mesaj sayacı: {guild_id: {user_id: {"gunluk": int, "toplam": int}}}
 mesaj_sayaci = defaultdict(lambda: defaultdict(lambda: {"gunluk": 0, "toplam": 0}))
 bugun = datetime.now(timezone.utc).date()
+afk_listesi = {}
+uyari_listesi = defaultdict(list)
 
 
 # ─── OLAYLAR ───────────────────────────────────────────────────────────────────
@@ -32,7 +34,6 @@ async def on_message(message):
         return
 
     global bugun
-    global mesaj_sayaci
 
     # Her gün sayacı sıfırla
     simdi = datetime.now(timezone.utc).date()
@@ -72,13 +73,14 @@ async def on_message(message):
             )
             await message.channel.send(embed=embed, delete_after=8)
 
-    await bot.process_commands(message)
-
+    # Sa kontrolü
     mesaj = message.content.strip()
     if mesaj in ["sa", "Sa"]:
         await message.channel.send(f"{message.author.mention} **Aleykümselam, hoş geldin!**")
 
+    # Sadece bir kez çağır
     await bot.process_commands(message)
+
 
 # ─── YARDIM KOMUTU ─────────────────────────────────────────────────────────────
 
@@ -140,20 +142,16 @@ async def avatar(ctx, uye: discord.Member = None):
 @bot.command(name="banner")
 async def banner(ctx, uye: discord.Member = None):
     uye = uye or ctx.author
-    
-    # Banner bilgisini almak için fetch_user kullanıyoruz
     user = await bot.fetch_user(uye.id)
-    
+
     if user.banner is None:
         embed = discord.Embed(
             description=f"❌ {uye.mention} kullanıcısının banneri yok!",
             color=discord.Color.red()
         )
         return await ctx.send(embed=embed)
-    
-    # Banner rengini al
+
     banner_rengi = user.accent_color
-    
     embed = discord.Embed(
         title=f"{uye.display_name} adlı kullanıcının banneri",
         color=banner_rengi if banner_rengi else discord.Color.blue()
@@ -162,8 +160,6 @@ async def banner(ctx, uye: discord.Member = None):
     embed.set_footer(text=f"İstenen: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
-
-afk_listesi = {}
 
 @bot.command(name="afk")
 async def afk(ctx, *, sebep: str = "Sebep belirtilmedi"):
@@ -275,7 +271,6 @@ async def ban(ctx, uye: discord.Member, *, sebep: str = "Sebep belirtilmedi"):
 @bot.command(name="unban")
 @commands.has_permissions(ban_members=True)
 async def unban(ctx, kullanici_id: int):
-    """Kullanıcı ID'si ile banı kaldırır. Örnek: .unban 123456789"""
     try:
         kullanici = await bot.fetch_user(kullanici_id)
     except discord.NotFound:
@@ -374,8 +369,6 @@ async def nuke(ctx):
     )
     await yeni_kanal.send(embed=embed2)
 
-
-uyari_listesi = defaultdict(list)
 
 @bot.command(name="uyar")
 @commands.has_permissions(manage_messages=True)
