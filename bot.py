@@ -103,11 +103,12 @@ async def yardim(ctx):
         ".ban @kullanıcı [sebep]": "Kullanıcıyı banlar.",
         ".unban [kullanıcı ID]": "ID ile banı kaldırır.",
         ".kick @kullanıcı [sebep]": "Kullanıcıyı sunucudan atar.",
-        ".mute @kullanıcı [süre] [sebep]": "Kullanıcıyı susturur.",
-        ".unmute @kullanıcı": "Susturmayı kaldırır.",
-        ".nuke": "Kanalı sıfırlar.",
+        ".mute @kullanıcı [süre] [sebep]": "Kullanıcıyı susturur. (Zaman Aşımı Uygula izni gerekir)",
+        ".unmute @kullanıcı": "Susturmayı kaldırır. (Zaman Aşımı Uygula izni gerekir)",
+        ".nuke": "Kanalı sıfırlar. (Kanalları Yönet veya Yönetici izni gerekir)",
         ".uyar @kullanıcı [sebep]": "Kullanıcıyı uyarır.",
         ".sil [miktar]": "Mesajları siler.",
+        ".dmall [mesaj]": "Sunucudaki herkese DM atar. (Yönetici izni gerekir)",
     }
     for k, v in komutlar.items():
         embed.add_field(name=k, value=v, inline=False)
@@ -310,10 +311,14 @@ async def kick(ctx, uye: discord.Member, *, sebep: str = "Sebep belirtilmedi"):
     await ctx.send(embed=embed)
 
 
+# ─── MUTE / UNMUTE (Zaman Aşımı Uygula izni gerekir) ──────────────────────────
+
 @bot.command(name="mute")
-@commands.has_permissions(moderate_members=True)
 async def mute(ctx, uye: discord.Member, sure: int = 10, *, sebep: str = "Sebep belirtilmedi"):
     from datetime import timedelta
+    # Discord'un "Zaman Aşımı Uygula" (moderate_members) iznini manuel kontrol et
+    if not ctx.author.guild_permissions.moderate_members:
+        return await ctx.send("❌ Bu komutu kullanmak için **Zaman Aşımı Uygula** iznine sahip olman gerekiyor!")
     await uye.timeout(timedelta(minutes=sure), reason=sebep)
     embed = discord.Embed(
         title="🔇 Kullanıcı Susturuldu",
@@ -328,8 +333,10 @@ async def mute(ctx, uye: discord.Member, sure: int = 10, *, sebep: str = "Sebep 
 
 
 @bot.command(name="unmute")
-@commands.has_permissions(moderate_members=True)
 async def unmute(ctx, uye: discord.Member):
+    # Discord'un "Zaman Aşımı Uygula" (moderate_members) iznini manuel kontrol et
+    if not ctx.author.guild_permissions.moderate_members:
+        return await ctx.send("❌ Bu komutu kullanmak için **Zaman Aşımı Uygula** iznine sahip olman gerekiyor!")
     await uye.timeout(None)
     embed = discord.Embed(
         description=f"🔊 {uye.mention} adlı kullanıcının susturması kaldırıldı.",
@@ -338,9 +345,14 @@ async def unmute(ctx, uye: discord.Member):
     await ctx.send(embed=embed)
 
 
+# ─── NUKE (Kanalları Yönet VEYA Yönetici izni gerekir) ────────────────────────
+
 @bot.command(name="nuke")
-@commands.has_permissions(manage_channels=True)
 async def nuke(ctx):
+    # Kanalları Yönet veya Yönetici iznini kontrol et
+    if not (ctx.author.guild_permissions.manage_channels or ctx.author.guild_permissions.administrator):
+        return await ctx.send("❌ Bu komutu kullanmak için **Kanalları Yönet** veya **Yönetici** iznine sahip olman gerekiyor!")
+
     kanal = ctx.channel
     embed = discord.Embed(
         description="⚠️ Bu kanalı nuke'lamak istediğinden emin misin? (evet/hayır)",
@@ -415,6 +427,83 @@ async def sil(ctx, miktar: int):
     )
     await asyncio.sleep(3)
     await mesaj.delete()
+
+
+# ─── DMALL (Yönetici izni gerekir, botlara atılmaz) ───────────────────────────
+
+@bot.command(name="dmall")
+async def dmall(ctx, *, mesaj_metni: str = None):
+    # Yönetici iznini kontrol et
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("❌ Bu komutu kullanmak için **Yönetici** iznine sahip olman gerekiyor!")
+
+    if not mesaj_metni:
+        return await ctx.send("❌ Lütfen göndermek istediğin mesajı yaz! Örnek: `.dmall Merhaba herkese!`")
+
+    # Onay al
+    onay_embed = discord.Embed(
+        title="📨 Toplu DM Onayı",
+        description=(
+            f"**Sunucudaki tüm üyelere** (botlar hariç) aşağıdaki mesaj gönderilecek:\n\n"
+            f"```{mesaj_metni}```\n"
+            f"⚠️ Bu işlem geri alınamaz! Devam etmek istiyor musun? (evet/hayır)"
+        ),
+        color=discord.Color.orange()
+    )
+    await ctx.send(embed=onay_embed)
+
+    def kontrol(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["evet", "hayır", "hayir"]
+
+    try:
+        cevap = await bot.wait_for("message", timeout=20.0, check=kontrol)
+    except asyncio.TimeoutError:
+        return await ctx.send("❌ Süre doldu, işlem iptal edildi.")
+
+    if cevap.content.lower() != "evet":
+        return await ctx.send("❌ Toplu DM işlemi iptal edildi.")
+
+    # Gönderim başlıyor
+    durum_mesaji = await ctx.send(
+        embed=discord.Embed(
+            description="📨 Mesajlar gönderiliyor, lütfen bekle...",
+            color=discord.Color.blue()
+        )
+    )
+
+    basarili = 0
+    basarisiz = 0
+
+    dm_embed = discord.Embed(
+        title=f"📢 {ctx.guild.name} sunucusundan duyuru!",
+        description=mesaj_metni,
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    dm_embed.set_footer(text=f"Gönderen: {ctx.author} | {ctx.guild.name}")
+    dm_embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+
+    for uye in ctx.guild.members:
+        if uye.bot:
+            continue  # Botları atla
+        try:
+            await uye.send(embed=dm_embed)
+            basarili += 1
+            await asyncio.sleep(0.5)  # Rate limit koruması
+        except:
+            basarisiz += 1
+
+    # Sonuç raporu
+    sonuc_embed = discord.Embed(
+        title="✅ Toplu DM Tamamlandı",
+        color=discord.Color.green(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    sonuc_embed.add_field(name="✅ Başarılı", value=f"**{basarili}** kişi", inline=True)
+    sonuc_embed.add_field(name="❌ Başarısız", value=f"**{basarisiz}** kişi (DM kapalı)", inline=True)
+    sonuc_embed.add_field(name="📝 Mesaj", value=mesaj_metni[:200], inline=False)
+    sonuc_embed.set_footer(text=f"Yetkili: {ctx.author}")
+    await durum_mesaji.edit(embed=sonuc_embed)
 
 
 # ─── HATA YÖNETİMİ ─────────────────────────────────────────────────────────────
