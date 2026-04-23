@@ -13,7 +13,6 @@ PREFIX = "."
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 
-# Mesaj sayacı: {guild_id: {user_id: {"gunluk": int, "toplam": int}}}
 mesaj_sayaci = defaultdict(lambda: defaultdict(lambda: {"gunluk": 0, "toplam": 0}))
 bugun = datetime.now(timezone.utc).date()
 afk_listesi = {}
@@ -35,7 +34,6 @@ async def on_message(message):
 
     global bugun
 
-    # Her gün sayacı sıfırla
     simdi = datetime.now(timezone.utc).date()
     if simdi != bugun:
         bugun = simdi
@@ -48,7 +46,6 @@ async def on_message(message):
     mesaj_sayaci[guild_id][user_id]["gunluk"] += 1
     mesaj_sayaci[guild_id][user_id]["toplam"] += 1
 
-    # AFK kontrolü
     if message.author.id in afk_listesi:
         sebep, zaman = afk_listesi.pop(message.author.id)
         fark = datetime.now(timezone.utc) - zaman
@@ -73,12 +70,10 @@ async def on_message(message):
             )
             await message.channel.send(embed=embed, delete_after=8)
 
-    # Sa kontrolü
     mesaj = message.content.strip()
     if mesaj in ["sa", "Sa"]:
         await message.channel.send(f"{message.author.mention} **Aleykümselam, hoş geldin!**")
 
-    # Sadece bir kez çağır
     await bot.process_commands(message)
 
 
@@ -98,17 +93,18 @@ async def yardim(ctx):
         ".afk [sebep]": "AFK moduna geçer.",
         ".ship @kullanıcı1 @kullanıcı2": "İki kişinin uyumunu hesaplar.",
         ".m [@kullanıcı]": "Mesaj sayısını gösterir.",
+        ".owner": "Sunucunun sahibini gösterir.",
+        ".hesapla [işlem]": "Matematik işlemi yapar. Örnek: .hesapla 5 + 3",
         ".lock": "Kanalı kilitler.",
         ".unlock": "Kanalı açar.",
         ".ban @kullanıcı [sebep]": "Kullanıcıyı banlar.",
         ".unban [kullanıcı ID]": "ID ile banı kaldırır.",
         ".kick @kullanıcı [sebep]": "Kullanıcıyı sunucudan atar.",
-        ".mute @kullanıcı [süre] [sebep]": "Kullanıcıyı susturur. (Zaman Aşımı Uygula izni gerekir)",
-        ".unmute @kullanıcı": "Susturmayı kaldırır. (Zaman Aşımı Uygula izni gerekir)",
-        ".nuke": "Kanalı sıfırlar. (Kanalları Yönet veya Yönetici izni gerekir)",
+        ".mute @kullanıcı [süre] [sebep]": "Kullanıcıyı susturur.",
+        ".unmute @kullanıcı": "Susturmayı kaldırır.",
+        ".nuke": "Kanalı sıfırlar. (Yönetici izni gerekir)",
         ".uyar @kullanıcı [sebep]": "Kullanıcıyı uyarır.",
         ".sil [miktar]": "Mesajları siler.",
-        ".dmall [mesaj]": "Sunucudaki herkese DM atar. (Yönetici izni gerekir)",
     }
     for k, v in komutlar.items():
         embed.add_field(name=k, value=v, inline=False)
@@ -226,6 +222,80 @@ async def mesaj_sayisi(ctx, uye: discord.Member = None):
     await ctx.send(embed=embed)
 
 
+# ─── OWNER KOMUTU ──────────────────────────────────────────────────────────────
+
+@bot.command(name="owner")
+async def owner(ctx):
+    sahip = ctx.guild.owner
+    embed = discord.Embed(
+        title="👑 Sunucu Sahibi",
+        color=discord.Color.gold(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.add_field(name="İsim", value=f"{sahip.mention} ({sahip})", inline=False)
+    embed.add_field(name="Hesap ID", value=f"`{sahip.id}`", inline=True)
+    embed.add_field(name="Hesap Oluşturma", value=f"<t:{int(sahip.created_at.timestamp())}:D>", inline=True)
+    embed.add_field(name="Sunucuya Katılma", value=f"<t:{int(sahip.joined_at.timestamp())}:D>", inline=True)
+    embed.set_thumbnail(url=sahip.display_avatar.url)
+    embed.set_footer(text=f"İstenen: {ctx.author}")
+    await ctx.send(embed=embed)
+
+
+# ─── HESAPLA KOMUTU ────────────────────────────────────────────────────────────
+
+@bot.command(name="hesapla")
+async def hesapla(ctx, *, ifade: str = None):
+    if not ifade:
+        embed = discord.Embed(
+            description="❌ Lütfen bir işlem gir! Örnek: `.hesapla 5 + 3`",
+            color=discord.Color.red()
+        )
+        return await ctx.send(embed=embed)
+
+    # Türkçe operatör desteği
+    ifade = ifade.replace("çarpı", "*").replace("bölü", "/").replace("artı", "+").replace("eksi", "-")
+    ifade = ifade.replace("x", "*").replace("÷", "/").replace("×", "*")
+
+    # Sadece güvenli karakterlere izin ver
+    izinli = set("0123456789+-*/().% ")
+    if not all(k in izinli for k in ifade):
+        embed = discord.Embed(
+            description="❌ Geçersiz karakter! Sadece sayılar ve `+ - * / ( ) %` kullanabilirsin.",
+            color=discord.Color.red()
+        )
+        return await ctx.send(embed=embed)
+
+    try:
+        sonuc = eval(ifade)
+        # Sonucu güzelce formatla
+        if isinstance(sonuc, float) and sonuc == int(sonuc):
+            sonuc = int(sonuc)
+        elif isinstance(sonuc, float):
+            sonuc = round(sonuc, 10)
+
+        embed = discord.Embed(
+            title="🧮 Hesap Makinesi",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="📥 İşlem", value=f"`{ifade}`", inline=False)
+        embed.add_field(name="📤 Sonuç", value=f"**{sonuc}**", inline=False)
+        embed.set_footer(text=f"Hesaplayan: {ctx.author.display_name}")
+        await ctx.send(embed=embed)
+    except ZeroDivisionError:
+        embed = discord.Embed(
+            description="❌ Sıfıra bölme hatası! Bir sayıyı sıfıra bölemezsin.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    except Exception:
+        embed = discord.Embed(
+            description="❌ Geçersiz işlem! Lütfen doğru bir matematik ifadesi gir.\nÖrnek: `.hesapla 10 * (5 + 3)`",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+
 # ─── MODERASYON KOMUTLARI ──────────────────────────────────────────────────────
 
 @bot.command(name="lock")
@@ -311,12 +381,9 @@ async def kick(ctx, uye: discord.Member, *, sebep: str = "Sebep belirtilmedi"):
     await ctx.send(embed=embed)
 
 
-# ─── MUTE / UNMUTE (Zaman Aşımı Uygula izni gerekir) ──────────────────────────
-
 @bot.command(name="mute")
 async def mute(ctx, uye: discord.Member, sure: int = 10, *, sebep: str = "Sebep belirtilmedi"):
     from datetime import timedelta
-    # Discord'un "Zaman Aşımı Uygula" (moderate_members) iznini manuel kontrol et
     if not ctx.author.guild_permissions.moderate_members:
         return await ctx.send("❌ Bu komutu kullanmak için **Zaman Aşımı Uygula** iznine sahip olman gerekiyor!")
     await uye.timeout(timedelta(minutes=sure), reason=sebep)
@@ -334,7 +401,6 @@ async def mute(ctx, uye: discord.Member, sure: int = 10, *, sebep: str = "Sebep 
 
 @bot.command(name="unmute")
 async def unmute(ctx, uye: discord.Member):
-    # Discord'un "Zaman Aşımı Uygula" (moderate_members) iznini manuel kontrol et
     if not ctx.author.guild_permissions.moderate_members:
         return await ctx.send("❌ Bu komutu kullanmak için **Zaman Aşımı Uygula** iznine sahip olman gerekiyor!")
     await uye.timeout(None)
@@ -345,13 +411,12 @@ async def unmute(ctx, uye: discord.Member):
     await ctx.send(embed=embed)
 
 
-# ─── NUKE (Kanalları Yönet VEYA Yönetici izni gerekir) ────────────────────────
+# ─── NUKE (Sadece Yönetici izni gerekir) ──────────────────────────────────────
 
 @bot.command(name="nuke")
 async def nuke(ctx):
-    # Kanalları Yönet veya Yönetici iznini kontrol et
-    if not (ctx.author.guild_permissions.manage_channels or ctx.author.guild_permissions.administrator):
-        return await ctx.send("❌ Bu komutu kullanmak için **Kanalları Yönet** veya **Yönetici** iznine sahip olman gerekiyor!")
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("❌ Bu komutu kullanmak için **Yönetici** iznine sahip olman gerekiyor!")
 
     kanal = ctx.channel
     embed = discord.Embed(
@@ -427,83 +492,6 @@ async def sil(ctx, miktar: int):
     )
     await asyncio.sleep(3)
     await mesaj.delete()
-
-
-# ─── DMALL (Yönetici izni gerekir, botlara atılmaz) ───────────────────────────
-
-@bot.command(name="dmall")
-async def dmall(ctx, *, mesaj_metni: str = None):
-    # Yönetici iznini kontrol et
-    if not ctx.author.guild_permissions.administrator:
-        return await ctx.send("❌ Bu komutu kullanmak için **Yönetici** iznine sahip olman gerekiyor!")
-
-    if not mesaj_metni:
-        return await ctx.send("❌ Lütfen göndermek istediğin mesajı yaz! Örnek: `.dmall Merhaba herkese!`")
-
-    # Onay al
-    onay_embed = discord.Embed(
-        title="📨 Toplu DM Onayı",
-        description=(
-            f"**Sunucudaki tüm üyelere** (botlar hariç) aşağıdaki mesaj gönderilecek:\n\n"
-            f"```{mesaj_metni}```\n"
-            f"⚠️ Bu işlem geri alınamaz! Devam etmek istiyor musun? (evet/hayır)"
-        ),
-        color=discord.Color.orange()
-    )
-    await ctx.send(embed=onay_embed)
-
-    def kontrol(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["evet", "hayır", "hayir"]
-
-    try:
-        cevap = await bot.wait_for("message", timeout=20.0, check=kontrol)
-    except asyncio.TimeoutError:
-        return await ctx.send("❌ Süre doldu, işlem iptal edildi.")
-
-    if cevap.content.lower() != "evet":
-        return await ctx.send("❌ Toplu DM işlemi iptal edildi.")
-
-    # Gönderim başlıyor
-    durum_mesaji = await ctx.send(
-        embed=discord.Embed(
-            description="📨 Mesajlar gönderiliyor, lütfen bekle...",
-            color=discord.Color.blue()
-        )
-    )
-
-    basarili = 0
-    basarisiz = 0
-
-    dm_embed = discord.Embed(
-        title=f"📢 {ctx.guild.name} sunucusundan duyuru!",
-        description=mesaj_metni,
-        color=discord.Color.blue(),
-        timestamp=datetime.now(timezone.utc)
-    )
-    dm_embed.set_footer(text=f"Gönderen: {ctx.author} | {ctx.guild.name}")
-    dm_embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-
-    for uye in ctx.guild.members:
-        if uye.bot:
-            continue  # Botları atla
-        try:
-            await uye.send(embed=dm_embed)
-            basarili += 1
-            await asyncio.sleep(0.5)  # Rate limit koruması
-        except:
-            basarisiz += 1
-
-    # Sonuç raporu
-    sonuc_embed = discord.Embed(
-        title="✅ Toplu DM Tamamlandı",
-        color=discord.Color.green(),
-        timestamp=datetime.now(timezone.utc)
-    )
-    sonuc_embed.add_field(name="✅ Başarılı", value=f"**{basarili}** kişi", inline=True)
-    sonuc_embed.add_field(name="❌ Başarısız", value=f"**{basarisiz}** kişi (DM kapalı)", inline=True)
-    sonuc_embed.add_field(name="📝 Mesaj", value=mesaj_metni[:200], inline=False)
-    sonuc_embed.set_footer(text=f"Yetkili: {ctx.author}")
-    await durum_mesaji.edit(embed=sonuc_embed)
 
 
 # ─── HATA YÖNETİMİ ─────────────────────────────────────────────────────────────
